@@ -1,0 +1,35 @@
+# 忽略 target 目录及其所有子目录和文件
+**/target/
+
+# Ignore test results
+/tests
+
+# 忽略 Cargo.lock 文件（除非你是发布包）
+Cargo.lock
+
+# Ignore build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.rlib
+*.dll
+
+# 忽略编辑器和 IDE 的临时文件
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+*.log
+*.class
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+*.tox/
+*.coverage
+*.cache

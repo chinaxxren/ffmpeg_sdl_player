@@ -150,6 +150,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// 将视频帧缩放到指定的大小和格式转化为 YUV420P 格式
 fn rescaler_for_frame(frame: &Video) -> Video {
     let width = SC_WIDTH.load(Ordering::Relaxed);
     let height = SC_HEIGHT.load(Ordering::Relaxed);

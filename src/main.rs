@@ -1,31 +1,50 @@
 extern crate ffmpeg_next as ffmpeg;
 
+use ffmpeg::format::Pixel;
+use ffmpeg::frame::Video;
+
+use sdl2::pixels::PixelFormatEnum;
+use sdl2::video::Window;
+
+use std::error::Error;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::error::Error;
-use sdl2::pixels::PixelFormatEnum;
-use ffmpeg::frame::Video as AVFrame;
 
-mod player;
 mod audio;
+mod player;
 mod video;
 
 use crate::player::Player;
 
+static SC_WIDTH: AtomicU32 = AtomicU32::new(800);
+static SC_HEIGHT: AtomicU32 = AtomicU32::new(600);
+
 fn main() -> Result<(), Box<dyn Error>> {
     // 创建带缓冲的通道，避免阻塞
-    let (frame_sender, frame_receiver) = mpsc::channel::<AVFrame>();
-    
+    let (frame_sender, frame_receiver) = mpsc::channel::<Video>();
+
     let path = "/Users/chinaxxren/Desktop/a.mp4";
     println!("开始播放视频: {}", path);
+
+    let width = SC_WIDTH.load(Ordering::Relaxed);
+    let height = SC_HEIGHT.load(Ordering::Relaxed);
+
+    let sdl_context = sdl2::init()?;
+    let video_subsystem = sdl_context.video()?;
+    let window: Window = video_subsystem
+        .window("Video Player", width, height)
+        .position_centered() // 居中显示
+        .resizable() // 设置窗口可变
+        .build()?;
 
     // 保持对 Player 的引用
     let player = Arc::new(Mutex::new(Player::start(
         path.into(),
         {
-            let sender = frame_sender.clone();
             move |frame| {
-                if let Err(e) = sender.send(frame.clone()) {
+                let new_frame = rescaler_for_frame(&frame);
+                if let Err(e) = frame_sender.send(new_frame) {
                     eprintln!("发送帧失败: {}", e);
                 }
             }
@@ -34,14 +53,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("播放状态: {}", playing);
         },
     )?));
-
-    let sdl_context = sdl2::init()?;
-    let video_subsystem = sdl_context.video()?;
-    let window = video_subsystem
-        .window("Video Player", 800, 600)
-        .position_centered()
-        .resizable()
-        .build()?;
 
     let mut canvas = window.into_canvas().build()?;
     let texture_creator = canvas.texture_creator();
@@ -55,11 +66,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
+                sdl2::event::Event::Window {
+                    win_event: sdl2::event::WindowEvent::Resized(x, _y),
+                    ..
+                } => {
+                    println!("窗口大小已更改为: {}x{}", x, _y);
+                }
                 sdl2::event::Event::Quit { .. } => {
                     println!("接收到退出事件");
                     break 'running;
                 }
-                sdl2::event::Event::KeyDown { keycode: Some(sdl2::keyboard::Keycode::Space), .. } => {
+                sdl2::event::Event::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::Space),
+                    ..
+                } => {
                     if let Ok(mut player) = player.lock() {
                         player.toggle_pause_playing();
                     }
@@ -128,4 +148,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("资源清理完成");
 
     Ok(())
+}
+
+fn rescaler_for_frame(frame: &Video) -> Video {
+    let width = SC_WIDTH.load(Ordering::Relaxed);
+    let height = SC_HEIGHT.load(Ordering::Relaxed);
+    println!("screen size: {}x{}", width, height);
+
+    let mut context = ffmpeg_next::software::scaling::Context::get(
+        frame.format(),
+        frame.width(),
+        frame.height(),
+        Pixel::YUV420P, // Keep YUV420P format
+        width,
+        height,
+        ffmpeg::software::scaling::Flags::BILINEAR,
+    )
+    .unwrap();
+
+    let mut new_frame = Video::empty();
+    context.run(&frame, &mut new_frame).unwrap();
+
+    new_frame
 }

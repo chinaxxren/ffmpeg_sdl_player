@@ -31,6 +31,7 @@ struct PlayerConfig {
 struct WindowState {
     size: (u32, u32),
     display_rect: Option<(i32, i32, u32, u32)>,
+    scale_mode: ScaleMode,
 }
 
 impl WindowState {
@@ -38,6 +39,7 @@ impl WindowState {
         Self {
             size: (width, height),
             display_rect: None,
+            scale_mode: ScaleMode::Fill,
         }
     }
 
@@ -65,7 +67,8 @@ impl WindowState {
             window_width,
             window_height,
             video_width,
-            video_height
+            video_height,
+            self.scale_mode,
         ));
     }
 }
@@ -121,6 +124,13 @@ impl FpsCounter {
             self.last_update = Instant::now();
         }
     }
+}
+
+// 在文件开头添加 ScaleMode 枚举
+#[derive(Debug, Clone, Copy)]
+pub enum ScaleMode {
+    Fit,  // 保持原始比例,两侧或者上下留黑
+    Fill, // 完全按原比例显示，进行裁剪，画面全屏显示
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -229,6 +239,17 @@ fn handle_events(
                     player.toggle_pause_playing();
                 }
             }
+            sdl2::event::Event::KeyDown {
+                keycode: Some(sdl2::keyboard::Keycode::M),
+                ..
+            } => {
+                // 切换缩放模式
+                window_state.scale_mode = match window_state.scale_mode {
+                    ScaleMode::Fit => ScaleMode::Fill,
+                    ScaleMode::Fill => ScaleMode::Fit,
+                };
+                println!("切换显示模式为: {:?}", window_state.scale_mode);
+            }
             _ => {}
         }
     }
@@ -329,22 +350,48 @@ fn calculate_display_rect(
     window_height: u32,
     video_width: u32,
     video_height: u32,
+    scale_mode: ScaleMode,
 ) -> (i32, i32, u32, u32) {
     let window_aspect = window_width as f32 / window_height as f32;
     let video_aspect = video_width as f32 / video_height as f32;
     
-    let (w, h) = if window_aspect > video_aspect {
-        let height = window_height;
-        let width = (height as f32 * video_aspect) as u32;
-        (width, height)
-    } else {
-        let width = window_width;
-        let height = (width as f32 / video_aspect) as u32;
-        (width, height)
+    let (w, h) = match scale_mode {
+        ScaleMode::Fit => {
+            if window_aspect > video_aspect {
+                let height = window_height;
+                let width = ((height as f32 * video_aspect) as u32).min(window_width);
+                (width, height)
+            } else {
+                let width = window_width;
+                let height = ((width as f32 / video_aspect) as u32).min(window_height);
+                (width, height)
+            }
+        },
+        ScaleMode::Fill => {
+            if window_aspect > video_aspect {
+                let width = window_width;
+                let height = ((width as f32 / video_aspect) as u32).max(window_height);
+                (width, height)
+            } else {
+                let height = window_height;
+                let width = ((height as f32 * video_aspect) as u32).max(window_width);
+                (width, height)
+            }
+        }
     };
     
-    let x = ((window_width - w) / 2) as i32;
-    let y = ((window_height - h) / 2) as i32;
+    // 计算居中位置，确保不会出现负值
+    let x = if w < window_width {
+        ((window_width - w) / 2) as i32
+    } else {
+        -((w as i32 - window_width as i32) / 2)
+    };
+    
+    let y = if h < window_height {
+        ((window_height - h) / 2) as i32
+    } else {
+        -((h as i32 - window_height as i32) / 2)
+    };
     
     (x, y, w, h)
 }

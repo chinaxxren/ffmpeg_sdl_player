@@ -139,7 +139,7 @@ impl AudioPlaybackThread {
     pub async fn receive_packet(&self, packet: ffmpeg::codec::packet::packet::Packet) -> bool {
         match self.packet_sender.send(packet).await {
             Ok(_) => {
-                println!("音频包发送成功");
+                // println!("音频包发送成功");
                 true
             }
             Err(e) => {
@@ -268,7 +268,7 @@ impl FFmpegToCPalForwarder {
                 break;
             };
 
-            println!("音频包接收到");
+            // println!("音频包接收到");
             self.packet_decoder.send_packet(&packet).unwrap();
 
             let mut decoded_frame = ffmpeg::util::frame::Audio::empty();

@@ -57,17 +57,17 @@ impl Player {
                     let mut playing = true;
 
                     let packet_forwarder_impl = async {
-                        println!("开始转发数据包");
+                        // println!("开始转发数据包");
                         for (stream, packet) in input_context.packets() {
                             if stream.index() == audio_stream_index {
-                                println!("转发音频包");
+                                // println!("转发音频");
                                 audio_playback_thread.receive_packet(packet).await;
                             } else if stream.index() == video_stream_index {
-                                println!("转发视频包");
+                                // println!("转发视频包");
                                 video_playback_thread.receive_packet(packet).await;
                             }
                         }
-                        println!("数据包转发完成");
+                        // println!("数据包转发完成");
                     }
                     .fuse()
                     .shared();
@@ -80,7 +80,7 @@ impl Player {
 
                         futures::select! {
                             _ = packet_forwarder => {
-                                println!("播放器播放完成");
+                                // println!("播放器播放完成");
                             },
                             received_command = control_receiver.recv().fuse() => {
                                 match received_command {

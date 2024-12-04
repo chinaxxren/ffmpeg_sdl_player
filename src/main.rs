@@ -44,12 +44,18 @@ impl WindowState {
     // 处理窗口大小调整
     fn handle_resize(&mut self, new_width: u32, new_height: u32) {
         let new_size = (new_width, new_height);
+        println!("处理窗口大小调整 - 当前: {}x{}, 新的: {}x{}", 
+            self.size.0, self.size.1, new_width, new_height);
+            
         if new_size != self.size {
             println!("窗口大小已更改为: {}x{}", new_width, new_height);
             self.size = new_size;
             self.display_rect = None;
             SC_WIDTH.store(new_width, Ordering::Relaxed);
             SC_HEIGHT.store(new_height, Ordering::Relaxed);
+            println!("全局窗口大小已更新: {}x{}", 
+                SC_WIDTH.load(Ordering::Relaxed),
+                SC_HEIGHT.load(Ordering::Relaxed));
         }
     }
 
@@ -125,11 +131,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         initial_height: SC_HEIGHT.load(Ordering::Relaxed),
     };
 
+    println!("初始窗口大小设置为: {}x{}", config.initial_width, config.initial_height);
+
     println!("开始播放视频: {}", config.video_path.as_os_str().to_str().unwrap());
 
     // 初始化 SDL
     let mut sdl = SdlContext::new(&config)?;
-    let mut window_state = WindowState::new(config.initial_width, config.initial_height);
+    let (window_width, window_height) = sdl.canvas.output_size()?;
+    println!("SDL窗口实际大小: {}x{}", window_width, window_height);
+    
+    let mut window_state = WindowState::new(window_width, window_height);
     let mut fps_counter = FpsCounter::new();
     let mut current_texture = None;
     let mut last_frame_time = Instant::now();
@@ -255,16 +266,7 @@ fn process_video_frame<'a>(
     let video_height = frame.height();
 
     // 创建或重新创建纹理（如果尺寸不匹配）
-    let texture_needs_update = match texture {
-        Some(tex) => {
-            let query = tex.query();
-            query.width != video_width || query.height != video_height
-        }
-        None => true,
-    };
-
-    if texture_needs_update {
-        println!("创建纹理: {}x{}", video_width, video_height);
+    if texture.is_none() {
         *texture = Some(texture_creator.create_texture_streaming(
             PixelFormatEnum::IYUV,
             video_width,
@@ -284,9 +286,7 @@ fn process_video_frame<'a>(
             frame.stride(2),
         )?;
 
-        canvas.clear();
-        
-        // 更新显示区域（如果需要）
+        // 获取窗口尺寸并更新显示区域
         let (window_width, window_height) = canvas.output_size()?;
         window_state.update_display_rect(
             window_width,
@@ -296,6 +296,12 @@ fn process_video_frame<'a>(
         );
         
         let (x, y, w, h) = window_state.display_rect.unwrap();
+        
+        // 只清除一次画布
+        canvas.set_draw_color(sdl2::pixels::Color::BLACK);
+        canvas.clear();
+        
+        // 使用整数坐标以避免子像素渲染
         let src_rect = sdl2::rect::Rect::new(0, 0, video_width, video_height);
         let dst_rect = sdl2::rect::Rect::new(x, y, w, h);
         

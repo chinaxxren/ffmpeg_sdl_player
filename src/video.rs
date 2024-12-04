@@ -34,7 +34,7 @@ impl VideoPlaybackThread {
                     let packet_receiver_impl = async {
                         loop {
                             let Ok(packet) = packet_receiver.recv().await else { 
-                                println!("视频包接收结束");
+                                // println!("视频包接收结束");
                                 break 
                             };
 
@@ -49,13 +49,17 @@ impl VideoPlaybackThread {
 
                             while packet_decoder.receive_frame(&mut decoded_frame).is_ok() {
                                 if let Some(delay) = clock.convert_pts_to_instant(decoded_frame.pts()) {
-                                    println!("视频帧延迟: {:?}", delay);
-                                    smol::Timer::after(delay).await;
+                                    // 使用更精确的帧定时
+                                    let now = std::time::Instant::now();
+                                    let current = now.duration_since(clock.start_time);
+                                    if delay > current {
+                                        let sleep_duration = delay - current;
+                                        if sleep_duration > std::time::Duration::from_micros(100) {
+                                            smol::Timer::after(sleep_duration).await;
+                                        }
+                                    }
                                 }
 
-                                println!("解码视频帧 - PTS: {:?}, 格式: {:?}", 
-                                    decoded_frame.pts(),
-                                    decoded_frame.format());
                                 video_frame_callback(&decoded_frame);
                             }
                         }
@@ -100,7 +104,7 @@ impl VideoPlaybackThread {
     pub async fn receive_packet(&self, packet: ffmpeg::codec::packet::packet::Packet) -> bool {
         match self.packet_sender.send(packet).await {
             Ok(_) => {
-                println!("视频包发送成功");
+                // println!("视频发送成功");
                 true
             },
             Err(e) => {

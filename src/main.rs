@@ -76,7 +76,7 @@ impl SdlContext {
         let sdl_context = sdl2::init()?;
         let video_subsystem = sdl_context.video()?;
         let window = video_subsystem
-            .window("Video Player", config.initial_width, config.initial_height)
+            .window("FFmpeg SDL Player", config.initial_width, config.initial_height)
             .position_centered()
             .resizable()
             .build()?;
@@ -224,6 +224,25 @@ fn handle_events(
     Ok(true)
 }
 
+// 缩放视频帧
+fn rescaler_for_frame(frame: &Video) -> Video {
+    // 创建新的视频帧，保持原始尺寸和格式
+    let mut new_frame = Video::empty();
+    let mut context = ffmpeg_next::software::scaling::Context::get(
+        frame.format(),
+        frame.width(),
+        frame.height(),
+        Pixel::YUV420P,
+        frame.width(),  // 使用原始宽度
+        frame.height(), // 使用原始高度
+        ffmpeg::software::scaling::Flags::BILINEAR,
+    )
+    .unwrap();
+
+    context.run(&frame, &mut new_frame).unwrap();
+    new_frame
+}
+
 // 处理视频帧
 fn process_video_frame<'a>(
     frame: Video,
@@ -232,16 +251,29 @@ fn process_video_frame<'a>(
     canvas: &mut sdl2::render::Canvas<Window>,
     window_state: &mut WindowState,
 ) -> Result<(), Box<dyn Error>> {
-    if texture.is_none() {
-        println!("创建纹理: {}x{}", frame.width(), frame.height());
+    let video_width = frame.width();
+    let video_height = frame.height();
+
+    // 创建或重新创建纹理（如果尺寸不匹配）
+    let texture_needs_update = match texture {
+        Some(tex) => {
+            let query = tex.query();
+            query.width != video_width || query.height != video_height
+        }
+        None => true,
+    };
+
+    if texture_needs_update {
+        println!("创建纹理: {}x{}", video_width, video_height);
         *texture = Some(texture_creator.create_texture_streaming(
             PixelFormatEnum::IYUV,
-            frame.width(),
-            frame.height(),
+            video_width,
+            video_height,
         )?);
     }
 
     if let Some(ref mut tex) = texture {
+        // 更新纹理数据
         tex.update_yuv(
             None,
             frame.data(0),
@@ -254,18 +286,14 @@ fn process_video_frame<'a>(
 
         canvas.clear();
         
-        let video_width = frame.width();
-        let video_height = frame.height();
-        
-        if window_state.display_rect.is_none() {
-            let (window_width, window_height) = canvas.output_size()?;
-            window_state.update_display_rect(
-                window_width,
-                window_height,
-                video_width,
-                video_height
-            );
-        }
+        // 更新显示区域（如果需要）
+        let (window_width, window_height) = canvas.output_size()?;
+        window_state.update_display_rect(
+            window_width,
+            window_height,
+            video_width,
+            video_height
+        );
         
         let (x, y, w, h) = window_state.display_rect.unwrap();
         let src_rect = sdl2::rect::Rect::new(0, 0, video_width, video_height);
@@ -287,28 +315,6 @@ fn check_frame_timeout(last_frame_time: Instant, player: &Arc<Mutex<Player>>) ->
         }
     }
     Ok(())
-}
-
-// 缩放视频帧
-fn rescaler_for_frame(frame: &Video) -> Video {
-    let width = SC_WIDTH.load(Ordering::Relaxed);
-    let height = SC_HEIGHT.load(Ordering::Relaxed);
-
-    let mut context = ffmpeg_next::software::scaling::Context::get(
-        frame.format(),
-        frame.width(),
-        frame.height(),
-        Pixel::YUV420P,
-        width,
-        height,
-        ffmpeg::software::scaling::Flags::BILINEAR,
-    )
-    .unwrap();
-
-    let mut new_frame = Video::empty();
-    context.run(&frame, &mut new_frame).unwrap();
-
-    new_frame
 }
 
 // 计算保持宽高比的显示区域
